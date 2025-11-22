@@ -1,4 +1,5 @@
-import { Application, Router } from "@oak/oak";
+import { Application, Context, Router } from "@oak/oak";
+import { oakCors } from "@oak/cors";
 import { Chain } from "./chain.ts";
 import type {
   ApiResponse,
@@ -7,25 +8,25 @@ import type {
   TransactionType,
 } from "./types.ts";
 
-// 1. Initialize the Blockchain Node
+// 1. Initialize Blockchain
 const totem = new Chain();
 console.log(
   `🦕 Totem Protocol Active. Genesis: ${totem.chain[0].hash.slice(0, 10)}...`,
 );
 
-// 2. Setup Web Server
+// 2. Setup Server
 const app = new Application();
 const router = new Router();
 
-// 3. Middleware: Error Handling & Logging
-app.use(async (ctx, next) => {
+// 3. Middleware: Logging & Errors
+app.use(async (ctx: Context, next) => {
   try {
     await next();
     const rt = ctx.response.headers.get("X-Response-Time");
     console.log(`${ctx.request.method} ${ctx.request.url} - ${rt}`);
   } catch (err) {
     console.error("API Error:", err);
-    ctx.response.status = 400; // Bad Request by default
+    ctx.response.status = 400;
     ctx.response.body = {
       success: false,
       error: err instanceof Error ? err.message : "Unknown Error",
@@ -33,15 +34,16 @@ app.use(async (ctx, next) => {
   }
 });
 
-// 4. Middleware: CORS (Allow Frontend Access) TODO:
+// 4. Middleware: CORS
+// We allow ALL origins so your laptop React app can hit the VPS
+app.use(oakCors({ origin: "*" }));
 
 // ==========================================
 // 5. API ROUTES
 // ==========================================
 
 // GET /chain
-// Returns the full ledger for visualization
-router.get("/chain", (ctx) => {
+router.get("/chain", (ctx: Context) => {
   ctx.response.body = {
     success: true,
     data: {
@@ -54,9 +56,8 @@ router.get("/chain", (ctx) => {
 });
 
 // GET /status/:id
-// Checks if a ticket is VALID, ACTIVE, or EXPIRED
-router.get("/status/:id", (ctx) => {
-  const ticketId = ctx.params.id;
+router.get("/status/:id", (ctx: Context) => {
+  const ticketId = ctx.params?.id;
   if (!ticketId) throw new Error("Ticket ID required");
 
   const status = totem.getTicketStatus(ticketId);
@@ -68,24 +69,18 @@ router.get("/status/:id", (ctx) => {
 });
 
 // POST /submit
-// The Core Input. Client must send a signed payload.
-// Body: { type, ticketId, payload, signature }
-router.post("/submit", async (ctx) => {
-  const body = await ctx.request.body.json();
-
-  // Destructure expected fields
-  const { type, ticketId, payload, signature } = body;
-
-  // Basic Validation
-  if (!type || !ticketId || !payload || !signature) {
-    throw new Error(
-      "Missing fields. Required: type, ticketId, payload, signature.",
-    );
+router.post("/submit", async (ctx: Context) => {
+  if (!ctx.request.hasBody) {
+    throw new Error("No data provided");
   }
 
-  // Construct the Transaction Object
-  // Note: The server assigns the Transaction ID (hash of the event),
-  // but the Security relies on the 'signature' field.
+  const body = await ctx.request.body.json();
+  const { type, ticketId, payload, signature } = body;
+
+  if (!type || !ticketId || !payload || !signature) {
+    throw new Error("Missing fields: type, ticketId, payload, signature.");
+  }
+
   const tx: Transaction = {
     id: crypto.randomUUID(),
     type: type as TransactionType,
@@ -94,11 +89,7 @@ router.post("/submit", async (ctx) => {
     signature: signature,
   };
 
-  // 1. Add to Mempool (This runs the Crypto Verify + State Machine checks)
   await totem.addTransaction(tx);
-
-  // 2. Instant Mine (For Hackathon Demo)
-  // In production, this would happen in the background.
   const newBlock = await totem.minePendingTransactions();
 
   ctx.response.body = {
@@ -118,5 +109,7 @@ router.post("/submit", async (ctx) => {
 app.use(router.routes());
 app.use(router.allowedMethods());
 
-console.log("🚀 Server running on http://localhost:8000");
-await app.listen({ port: 8000 });
+// BIND TO 0.0.0.0 (Crucial for VPS)
+const PORT = 8000;
+console.log(`🚀 Server running on 0.0.0.0:${PORT}`);
+await app.listen({ port: PORT, hostname: "0.0.0.0" });

@@ -78,6 +78,9 @@
       "integrity": "sha512-Yhpw4T9C6hPpgPeA28us07OJeqZ5EzQTkbfwuhsUg0c237RomFoETJgmp2sa3F/41gfLE6G5cqcYwznmeEeOlQ=="
     }
   },
+  "remote": {
+    "https://deno.land/std@0.208.0/fmt/colors.ts": "34b3f77432925eb72cf0bfb351616949746768620b8e5ead66da532f93d10ba2"
+  },
   "workspace": {
     "dependencies": [
       "jsr:@oak/oak@^17.2.0",

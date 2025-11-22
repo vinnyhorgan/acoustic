@@ -2,6 +2,7 @@
   "tasks": {
     "dev": "deno run --allow-net --allow-read --watch mod.ts",
     "start": "deno run --allow-net --allow-read mod.ts"
+    "cli": "deno run --allow-net --allow-read --allow-write --allow-env cli.ts"
   },
   "imports": {
     "@oak/oak": "jsr:@oak/oak@^17.2.0",

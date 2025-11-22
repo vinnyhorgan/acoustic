@@ -1,4 +1,5 @@
 import { Application, Context, Router } from "@oak/oak";
+import { cors, type CorsOptions } from "@momiji/cors";
 import { Chain } from "./chain.ts";
 import type {
   ApiResponse,
@@ -16,6 +17,18 @@ console.log(
 // 2. Setup Server
 const app = new Application();
 const router = new Router();
+
+// cors shit
+const corsOptions: CorsOptions = {
+  origin: "*",
+  allowMethods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
+  allowHeaders: ["Content-Type", "Authorization"],
+  exposeHeaders: [],
+  credentials: false,
+  maxAge: undefined,
+};
+
+app.use(cors(corsOptions));
 
 // 3. Middleware: Logging & Errors
 app.use(async (ctx: Context, next) => {

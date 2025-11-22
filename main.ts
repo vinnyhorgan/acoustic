@@ -1,180 +1,188 @@
 import { Chain } from "./chain.ts";
-import type { Transaction } from "./types.ts";
+import { generateKeyPair, signData } from "./crypto.ts";
+import type { TicketPayload, Transaction } from "./types.ts";
 
 // ==========================================
-// 🧪 TOTEM CHAIN SIMULATION RUNNER
+// 🧪 SECURE TOTEM CHAIN SIMULATION
 // ==========================================
 
-// Helper to make the console output readable
 const log = (msg: string) =>
   console.log(`\n%c${msg}`, "color: cyan; font-weight: bold;");
 const logSuccess = (msg: string) => console.log(`%c✅ ${msg}`, "color: green;");
 const logError = (msg: string) => console.log(`%c⛔ ${msg}`, "color: red;");
 
-// Initialize the Blockchain
-log("1. INITIALIZING TOTEM PROTOCOL...");
-const totem = new Chain(); // Matches your export class Chain
-console.log(`Genesis Block created. Hash: ${totem.chain[0].hash}`);
+const totem = new Chain();
 
-// Helper to generate a dummy transaction
-const createTx = (
-  type: "MINT" | "ENTRY" | "EXIT" | "INSPECT",
-  ticketId: string,
-  location: string,
-): Transaction => {
-  return {
+// Helper to wrap the ugly crypto logic
+async function sendSignedTx(
+  type: "MINT" | "ACTIVATE" | "INSPECT",
+  keyPair: CryptoKeyPair,
+  publicKeyHex: string, // The Ticket ID
+  payloadData: Partial<TicketPayload>,
+) {
+  const payload: TicketPayload = {
+    timestamp: Date.now(),
+    deviceId: "SIM_DEVICE",
+    ...payloadData,
+  };
+
+  const signature = await signData(payload, keyPair.privateKey);
+
+  const tx: Transaction = {
     id: crypto.randomUUID(),
     type,
-    ticketId,
-    payload: {
-      timestamp: Date.now(),
-      location,
-      price: type === "MINT" ? "2.50 EUR" : undefined,
-      deviceId: "SIMULATION_BOT",
-    },
-    signature: "mock_sig_123",
+    ticketId: publicKeyHex,
+    payload,
+    signature,
   };
-};
 
-async function runSimulation() {
-  // ==========================================
-  // SCENARIO 1: THE HAPPY PATH
-  // User "Alice" buys a ticket, rides the train, and leaves.
-  // ==========================================
-  log("--- SCENARIO 1: Alice's Journey (The Happy Path) ---");
-
-  const aliceId = "ALICE_TOKEN_01";
-
-  // 1. Minting
-  console.log("Alice buys a ticket...");
-  totem.addTransaction(createTx("MINT", aliceId, "Kiosk A"));
+  await totem.addTransaction(tx);
   await totem.minePendingTransactions();
+  return tx;
+}
 
-  const status1 = totem.getTicketStatus(aliceId);
-  if (status1 === "ISSUED") logSuccess("Alice's ticket is ISSUED on-chain.");
-  else logError(`Failed! Status is ${status1}`);
-
-  // 2. Entering
-  console.log("Alice scans at Central Station...");
-  totem.addTransaction(createTx("ENTRY", aliceId, "Central Station"));
-  await totem.minePendingTransactions();
-
-  const status2 = totem.getTicketStatus(aliceId);
-  if (status2 === "IN_TRANSIT") logSuccess("Alice is IN_TRANSIT.");
-  else logError(`Failed! Status is ${status2}`);
-
-  // 3. Exiting
-  console.log("Alice leaves at Suburbs...");
-  totem.addTransaction(createTx("EXIT", aliceId, "Suburbs"));
-  await totem.minePendingTransactions();
-
-  const status3 = totem.getTicketStatus(aliceId);
-  if (status3 === "USED") logSuccess("Alice's ticket is now USED.");
-  else logError(`Failed! Status is ${status3}`);
+async function runSecureSimulation() {
+  log("1. INITIALIZING CRYPTO-SECURE PROTOCOL...");
 
   // ==========================================
-  // SCENARIO 2: THE "COPY-SAFE" ATTACK
-  // User "Bob" prints his ticket twice. Gives one to "Eve".
-  // Bob enters. Eve tries to enter with the same ID.
+  // SCENARIO 1: THE HAPPY TRAVELER
+  // Alice generates a wallet, buys a ticket, activates it, and rides.
   // ==========================================
-  log("--- SCENARIO 2: The Double Spend Attack ---");
+  log("--- SCENARIO 1: Alice's Secure Journey ---");
 
-  const bobId = "BOB_TOKEN_CLONE";
+  // 1. Setup Wallet (On Phone)
+  const aliceWallet = await generateKeyPair();
+  const aliceID = aliceWallet.publicKey;
+  console.log(`Alice generated KeyPair. ID: ${aliceID.slice(0, 16)}...`);
 
-  // Mint Bob's ticket
-  totem.addTransaction(createTx("MINT", bobId, "Kiosk B"));
-  await totem.minePendingTransactions();
-  console.log("Bob minted a ticket.");
+  // 2. Minting (Buy Ticket)
+  console.log("Alice buys (Mints) a ticket...");
+  await sendSignedTx("MINT", aliceWallet.keyPair, aliceID, {
+    price: "5.00 CHF",
+  });
 
-  // Bob enters
-  totem.addTransaction(createTx("ENTRY", bobId, "North Station"));
-  console.log("Bob scans ENTRY. (Adding to mempool...)");
-
-  // NOTE: Even before mining, the mempool should block Eve!
-  console.log("Eve tries to scan ENTRY with Bob's ID...");
-
-  try {
-    totem.addTransaction(createTx("ENTRY", bobId, "North Station"));
-    logError("SECURITY FAILURE! Eve was allowed to enter.");
-  } catch (e) {
-    logSuccess(`SECURITY SUCCESS! Eve was blocked: "${(e as Error).message}"`);
-  }
-
-  // Mine the block to cement Bob's entry
-  await totem.minePendingTransactions();
-
-  // ==========================================
-  // SCENARIO 3: POLICE INSPECTION
-  // User "Charlie" is riding. Police checks his status.
-  // ==========================================
-  log("--- SCENARIO 3: Police Inspection ---");
-
-  const charlieId = "CHARLIE_RIDER";
-
-  // Setup: Mint and Enter
-  totem.addTransaction(createTx("MINT", charlieId, "Kiosk C"));
-  totem.addTransaction(createTx("ENTRY", charlieId, "South Station"));
-  await totem.minePendingTransactions();
-
-  console.log("Charlie is on the train. Police scans him...");
-
-  try {
-    totem.addTransaction(createTx("INSPECT", charlieId, "Police Scanner 99"));
-    logSuccess("Inspection recorded valid.");
-    await totem.minePendingTransactions();
-  } catch (e) {
-    logError(`Inspection failed unexpectedly: ${(e as Error).message}`);
-  }
-
-  // Ensure state didn't change (Should still be IN_TRANSIT)
-  if (totem.getTicketStatus(charlieId) === "IN_TRANSIT") {
-    logSuccess("Charlie's status remains IN_TRANSIT after inspection.");
+  if (totem.getTicketStatus(aliceID) === "ISSUED") {
+    logSuccess("Ticket ISSUED. Ready for travel.");
   } else {
-    logError("Inspection wrongly changed the state!");
+    logError("Minting Failed.");
+  }
+
+  // 3. Activation (Hop on Train)
+  console.log("Alice hops on the train and Activates...");
+  await sendSignedTx("ACTIVATE", aliceWallet.keyPair, aliceID, {
+    location: "Bern",
+  });
+
+  if (totem.getTicketStatus(aliceID) === "ACTIVE") {
+    logSuccess("Ticket is ACTIVE. Timer started.");
+  } else {
+    logError("Activation Failed.");
+  }
+
+  // 4. Police Inspection
+  console.log("Police checks Alice...");
+  try {
+    // Inspection acts as an audit log
+    await sendSignedTx("INSPECT", aliceWallet.keyPair, aliceID, {
+      deviceId: "POLICE_SCANNER",
+    });
+    logSuccess("Police Scan Validated on-chain.");
+  } catch (e) {
+    logError("Police Scan Rejected!");
   }
 
   // ==========================================
-  // SCENARIO 4: THE "SNEAKY EXIT"
-  // User "Dave" hops the fence to enter, but tries to scan out.
+  // SCENARIO 2: THE IDENTITY THIEF (Crypto Attack)
+  // Hacker 'Mallory' sees Alice's ID on the chain.
+  // She tries to use it. She has her own keys, but uses Alice's ID.
   // ==========================================
-  log("--- SCENARIO 4: The Sneaky Exit ---");
+  log("--- SCENARIO 2: The Identity Theft Attack ---");
 
-  const daveId = "DAVE_THE_HACKER";
+  const malloryWallet = await generateKeyPair();
+  console.log("Mallory generates her own keys...");
+  console.log(
+    `Mallory trying to Activate Alice's ID: ${aliceID.slice(0, 16)}...`,
+  );
 
-  // Mint, but DO NOT Enter
-  totem.addTransaction(createTx("MINT", daveId, "Kiosk D"));
-  await totem.minePendingTransactions();
+  const payload = { timestamp: Date.now(), location: "Zurich" };
 
-  console.log("Dave minted but never scanned in. Trying to scan EXIT...");
+  // Mallory signs with HER key, but claims to be ALICE (ticketId = aliceID)
+  const fakeSignature = await signData(
+    payload,
+    malloryWallet.keyPair.privateKey,
+  );
+
+  const hackTx: Transaction = {
+    id: crypto.randomUUID(),
+    type: "ACTIVATE",
+    ticketId: aliceID, // <--- TARGETING ALICE
+    payload: payload,
+    signature: fakeSignature, // <--- SIGNED BY MALLORY
+  };
 
   try {
-    totem.addTransaction(createTx("EXIT", daveId, "West Station"));
-    logError("SECURITY FAILURE! Dave was allowed to exit.");
+    await totem.addTransaction(hackTx);
+    logError("SECURITY FAILURE! Mallory hacked the ticket.");
   } catch (e) {
-    logSuccess(`SECURITY SUCCESS! Dave was blocked: "${(e as Error).message}"`);
+    logSuccess(
+      `SECURITY SUCCESS! Chain rejected signature: "${(e as Error).message}"`,
+    );
   }
 
   // ==========================================
-  // FINAL LEDGER REPORT
+  // SCENARIO 3: THE "DOUBLE START" (State Logic)
+  // Alice tries to Activate her ticket again while it's already running.
+  // ==========================================
+  log("--- SCENARIO 3: Double Activation Attempt ---");
+
+  try {
+    console.log("Alice tries to Activate again...");
+    await sendSignedTx("ACTIVATE", aliceWallet.keyPair, aliceID, {
+      location: "Geneva",
+    });
+    logError("Logic Failure! Double activation allowed.");
+  } catch (e) {
+    logSuccess(`Logic Guard Held: "${(e as Error).message}"`);
+  }
+
+  // ==========================================
+  // SCENARIO 4: THE TIME TRAVELER (Expiration)
+  // We mint a ticket with a 10ms duration to test expiry.
+  // ==========================================
+  log("--- SCENARIO 4: Ticket Expiration ---");
+
+  const flashWallet = await generateKeyPair();
+  const flashID = flashWallet.publicKey;
+
+  // Mint
+  await sendSignedTx("MINT", flashWallet.keyPair, flashID, { duration: 10 }); // 10ms duration
+
+  // Activate
+  await sendSignedTx("ACTIVATE", flashWallet.keyPair, flashID, {});
+  console.log("Flash Ticket Activated (10ms duration)...");
+
+  // Check Immediately
+  if (totem.getTicketStatus(flashID) === "ACTIVE") {
+    console.log("Status is ACTIVE (Correct). Waiting 20ms...");
+  }
+
+  // Wait for expiry
+  await new Promise((r) => setTimeout(r, 20));
+
+  const status = totem.getTicketStatus(flashID);
+  if (status === "EXPIRED") {
+    logSuccess("Ticket correctly EXPIRED.");
+  } else {
+    logError(`Ticket failed to expire! Status is ${status}`);
+  }
+
+  // ==========================================
+  // FINAL REPORT
   // ==========================================
   log("--- SIMULATION COMPLETE ---");
-  console.log(`Final Chain Height: ${totem.chain.length} Blocks`);
-  console.log("Validating Chain Integrity...");
-
-  // Simple hash check
-  let valid = true;
-  for (let i = 1; i < totem.chain.length; i++) {
-    const current = totem.chain[i];
-    const prev = totem.chain[i - 1];
-    if (current.previousHash !== prev.hash) valid = false;
-  }
-
-  if (valid) logSuccess("Blockchain Integrity: 100% OK");
-  else logError("Blockchain Corrupted!");
+  console.log(`Chain Height: ${totem.chain.length}`);
 }
 
-// Execute
 if (import.meta.main) {
-  runSimulation();
+  runSecureSimulation();
 }
-

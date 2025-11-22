@@ -1,10 +1,13 @@
 import { Block } from "./block.ts";
-import type { TicketStatus, Transaction, TransactionType } from "./types.ts";
+import { verifySignature } from "./crypto.ts";
+import type { TicketStatus, Transaction } from "./types.ts";
 
 export class Chain {
   public chain: Block[];
   public pendingTransactions: Transaction[];
   public difficulty: number;
+
+  private DEFAULT_DURATION = 2 * 60 * 60 * 1000;
 
   constructor() {
     this.chain = [this.createGenesisBlock()];
@@ -20,74 +23,84 @@ export class Chain {
     return this.chain[this.chain.length - 1];
   }
 
+  // ========================================================
+  // 🧠 THE TIME-BASED STATE MACHINE (FIXED)
+  // ========================================================
   public getTicketStatus(ticketId: string): TicketStatus {
     let status: TicketStatus = "INVALID";
+    let activationTime = 0;
+    let validDuration = 0; // Store duration here across transactions
 
-    // step 1) replay committed blocks (the past)
-    for (const block of this.chain) {
-      for (const tx of block.transactions) {
-        if (tx.ticketId === ticketId) {
-          status = this.applyTransition(status, tx.type);
+    // Helper to process a single transaction event
+    const processTx = (tx: Transaction) => {
+      if (tx.ticketId !== ticketId) return;
+
+      if (tx.type === "MINT") {
+        status = "ISSUED";
+        // FIX: Capture duration from the MINT payload
+        if (tx.payload.duration) {
+          validDuration = tx.payload.duration;
         }
       }
+
+      if (tx.type === "ACTIVATE" && status === "ISSUED") {
+        status = "ACTIVE";
+        activationTime = tx.payload.timestamp;
+
+        // FIX: If MINT didn't specify duration, check ACTIVATE, otherwise Default
+        if (validDuration === 0) {
+          validDuration = tx.payload.duration || this.DEFAULT_DURATION;
+        }
+      }
+    };
+
+    // 1. Replay Past
+    for (const block of this.chain) {
+      block.transactions.forEach(processTx);
     }
 
-    // step 2) replay pending transactions (the present/mempool)
-    // absolutely vital to prevent "double spends" before the block is mined :O
-    for (const tx of this.pendingTransactions) {
-      if (tx.ticketId === ticketId) {
-        status = this.applyTransition(status, tx.type);
+    // 2. Replay Present
+    this.pendingTransactions.forEach(processTx);
+
+    // 3. LOGIC: Check Time Expiration
+    if (status === "ACTIVE") {
+      const now = Date.now();
+      const expirationTime = activationTime + validDuration;
+
+      if (now > expirationTime) {
+        return "EXPIRED";
       }
     }
 
     return status;
   }
 
-  private applyTransition(
-    current: TicketStatus,
-    action: TransactionType,
-  ): TicketStatus {
-    if (action === "MINT") return "ISSUED";
+  // ========================================================
+  // 🛡️ AUTH & LOGIC GATES
+  // ========================================================
+  public async addTransaction(tx: Transaction): Promise<void> {
+    const isValidSignature = await verifySignature(
+      tx.payload,
+      tx.signature,
+      tx.ticketId,
+    );
 
-    if (action === "INSPECT") return current;
-
-    switch (current) {
-      case "INVALID":
-        return "INVALID";
-
-      case "ISSUED":
-        if (action === "ENTRY") return "IN_TRANSIT";
-        return "ISSUED";
-
-      case "IN_TRANSIT":
-        if (action === "EXIT") return "USED";
-        return "IN_TRANSIT";
-
-      case "USED":
-        return "USED";
-
-      default:
-        return current;
+    if (!isValidSignature) {
+      throw new Error("⛔ SIGNATURE INVALID: Transaction rejected.");
     }
-  }
 
-  public addTransaction(tx: Transaction): void {
     const currentStatus = this.getTicketStatus(tx.ticketId);
 
-    if (tx.type === "ENTRY" && currentStatus !== "ISSUED") {
-      throw new Error("entry denied, ticket is " + currentStatus);
+    if (tx.type === "ACTIVATE" && currentStatus !== "ISSUED") {
+      throw new Error(`Activation Failed. Ticket is ${currentStatus}`);
     }
 
     if (tx.type === "MINT" && currentStatus !== "INVALID") {
-      throw new Error("Mint failed. ID already exists on chain.");
+      throw new Error("Mint Failed. ID already exists on chain.");
     }
 
-    if (tx.type === "EXIT" && currentStatus !== "IN_TRANSIT") {
-      throw new Error("exit denied, ticket was not scanned at entry");
-    }
-
-    if (tx.type === "INSPECT" && currentStatus !== "IN_TRANSIT") {
-      throw new Error("inspection failed. ticket is " + currentStatus);
+    if (tx.type === "INSPECT" && currentStatus === "INVALID") {
+      throw new Error("Cannot inspect non-existent ticket.");
     }
 
     this.pendingTransactions.push(tx);
@@ -106,7 +119,7 @@ export class Chain {
     await newBlock.mineBlock(this.difficulty);
 
     this.chain.push(newBlock);
-    this.pendingTransactions = []; // clear mempool
+    this.pendingTransactions = [];
 
     return newBlock;
   }

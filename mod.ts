@@ -1,5 +1,4 @@
 import { Application, Context, Router } from "@oak/oak";
-import { oakCors } from "@oak/cors";
 import { Chain } from "./chain.ts";
 import type {
   ApiResponse,
@@ -36,7 +35,6 @@ app.use(async (ctx: Context, next) => {
 
 // 4. Middleware: CORS
 // We allow ALL origins so your laptop React app can hit the VPS
-app.use(oakCors({ origin: "*" }));
 
 // ==========================================
 // 5. API ROUTES

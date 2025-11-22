@@ -138,7 +138,7 @@ async function manageWallet(wallet: Wallet) {
 
     if (choice === "1") {
       await submitTx("MINT", wallet, {
-        price: "5.00 CHF",
+        price: "5.00",
         timestamp: Date.now(),
         duration: 1000 * 60 * 60 * 2, // 2 Hours
         deviceId: "CLI_KIOSK",

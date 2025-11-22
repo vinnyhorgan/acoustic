@@ -2,6 +2,8 @@ import { Block } from "./block.ts";
 import { verifySignature } from "./crypto.ts";
 import type { TicketStatus, Transaction } from "./types.ts";
 
+const LEDGER_FILE = "./ledger.json"; // <--- PERSISTENCE FILE
+
 export class Chain {
   public chain: Block[];
   public pendingTransactions: Transaction[];
@@ -13,6 +15,28 @@ export class Chain {
     this.chain = [this.createGenesisBlock()];
     this.pendingTransactions = [];
     this.difficulty = 2;
+
+    // LOAD FROM DISK ON STARTUP
+    this.loadChain();
+  }
+
+  // 💾 PERSISTENCE METHODS
+  private async loadChain() {
+    try {
+      const data = await Deno.readTextFile(LEDGER_FILE);
+      const loaded = JSON.parse(data);
+      // Basic validation: ensure it's an array
+      if (Array.isArray(loaded) && loaded.length > 0) {
+        this.chain = loaded;
+        console.log(`📂 Ledger loaded. Height: ${this.chain.length}`);
+      }
+    } catch {
+      console.log("✨ No existing ledger. Starting fresh.");
+    }
+  }
+
+  private async saveChain() {
+    await Deno.writeTextFile(LEDGER_FILE, JSON.stringify(this.chain, null, 2));
   }
 
   private createGenesisBlock(): Block {
@@ -23,84 +47,56 @@ export class Chain {
     return this.chain[this.chain.length - 1];
   }
 
-  // ========================================================
-  // 🧠 THE TIME-BASED STATE MACHINE (FIXED)
-  // ========================================================
   public getTicketStatus(ticketId: string): TicketStatus {
+    // ... (Keep existing logic) ...
+    // COPY PASTE YOUR EXISTING getTicketStatus LOGIC HERE
     let status: TicketStatus = "INVALID";
     let activationTime = 0;
-    let validDuration = 0; // Store duration here across transactions
+    let validDuration = 0;
 
-    // Helper to process a single transaction event
     const processTx = (tx: Transaction) => {
       if (tx.ticketId !== ticketId) return;
-
       if (tx.type === "MINT") {
         status = "ISSUED";
-        // FIX: Capture duration from the MINT payload
-        if (tx.payload.duration) {
-          validDuration = tx.payload.duration;
-        }
+        if (tx.payload.duration) validDuration = tx.payload.duration;
       }
-
       if (tx.type === "ACTIVATE" && status === "ISSUED") {
         status = "ACTIVE";
         activationTime = tx.payload.timestamp;
-
-        // FIX: If MINT didn't specify duration, check ACTIVATE, otherwise Default
         if (validDuration === 0) {
           validDuration = tx.payload.duration || this.DEFAULT_DURATION;
         }
       }
     };
 
-    // 1. Replay Past
-    for (const block of this.chain) {
-      block.transactions.forEach(processTx);
-    }
-
-    // 2. Replay Present
+    this.chain.forEach((b) => b.transactions.forEach(processTx));
     this.pendingTransactions.forEach(processTx);
 
-    // 3. LOGIC: Check Time Expiration
     if (status === "ACTIVE") {
-      const now = Date.now();
-      const expirationTime = activationTime + validDuration;
-
-      if (now > expirationTime) {
-        return "EXPIRED";
-      }
+      if (Date.now() > activationTime + validDuration) return "EXPIRED";
     }
-
     return status;
   }
 
-  // ========================================================
-  // 🛡️ AUTH & LOGIC GATES
-  // ========================================================
   public async addTransaction(tx: Transaction): Promise<void> {
+    // ... (Keep existing logic) ...
+    // COPY PASTE YOUR EXISTING addTransaction LOGIC HERE
     const isValidSignature = await verifySignature(
       tx.payload,
       tx.signature,
       tx.ticketId,
     );
-
-    if (!isValidSignature) {
-      throw new Error("⛔ SIGNATURE INVALID: Transaction rejected.");
-    }
+    if (!isValidSignature) throw new Error("⛔ SIGNATURE INVALID");
 
     const currentStatus = this.getTicketStatus(tx.ticketId);
-
     if (tx.type === "ACTIVATE" && currentStatus !== "ISSUED") {
-      throw new Error(`Activation Failed. Ticket is ${currentStatus}`);
+      throw new Error(`Activation Failed: ${currentStatus}`);
     }
-
     if (tx.type === "MINT" && currentStatus !== "INVALID") {
-      throw new Error("Mint Failed. ID already exists on chain.");
+      throw new Error("Mint Failed: Exists");
     }
-
     if (tx.type === "INSPECT" && currentStatus === "INVALID") {
-      throw new Error("Cannot inspect non-existent ticket.");
+      throw new Error("Inspect Failed");
     }
 
     this.pendingTransactions.push(tx);
@@ -120,6 +116,9 @@ export class Chain {
 
     this.chain.push(newBlock);
     this.pendingTransactions = [];
+
+    // SAVE TO DISK AFTER MINING
+    await this.saveChain();
 
     return newBlock;
   }

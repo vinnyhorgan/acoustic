@@ -1,21 +1,24 @@
 // all types go here
 
 // actions
-export type TransactionType = "MINT" | "INSPECT" | "ENTRY" | "EXIT";
+// CHANGED: Removed ENTRY/EXIT (no gates). Added ACTIVATE (starts the timer).
+export type TransactionType = "MINT" | "INSPECT" | "ACTIVATE";
 
 // state
 export type TicketStatus =
-  | "ISSUED" // ready to use (minted or exited)
-  | "IN_TRANSIT" // currently inside the network (cannot enter again, double spend)
-  | "USED" // single-use ticket has finished its trip
+  | "ISSUED" // ready to use (minted but not started)
+  | "ACTIVE" // CHANGED: timer is running, valid for travel
+  | "EXPIRED" // CHANGED: timer ran out
+  | "USED" // (optional) manually marked as finished
   | "INVALID"; // id does not exist on chain
 
 // payload
 export interface TicketPayload {
-  price?: string; // eg "2.50 EUR"
-  location?: string; // ec "central station"
-  deviceId?: string; // who signed this?
-  timestamp: number; // when?
+  price?: string;
+  location?: string;
+  deviceId?: string;
+  timestamp: number;
+  duration?: number; // NEW: how long is this valid in ms? (e.g. 2 hours)
 }
 
 // transaction
@@ -23,7 +26,7 @@ export interface TicketPayload {
 export interface Transaction {
   id: string; // unique tx hash
   type: TransactionType;
-  ticketId: string; // totem id
+  ticketId: string; // This is now the PUBLIC KEY of the user
   payload: TicketPayload;
   signature: string; // cryptographic signature proving origin
 }
@@ -32,11 +35,11 @@ export interface Transaction {
 // the explorer should be able to visualize this
 export interface BlockData {
   index: number;
-  timestamp: number; // when the block was mined
+  timestamp: number;
   transactions: Transaction[];
-  previousHash: string; // link to the past
-  hash: string; // seal of the present
-  nonce: number; // proof of work
+  previousHash: string;
+  hash: string;
+  nonce: number;
 }
 
 // api communication
@@ -45,3 +48,4 @@ export interface ApiResponse<T> {
   data?: T;
   error?: string;
 }
+

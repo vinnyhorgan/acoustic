@@ -35,6 +35,8 @@ export class Block implements BlockData {
   }
 
   async calculateHash(): Promise<string> {
+    // This JSON.stringify automatically handles the new Public Keys and Signatures
+    // because they are just strings inside the Transaction objects.
     const strData = this.index.toString() +
       this.previousHash +
       this.timestamp.toString() +
@@ -50,8 +52,6 @@ export class Block implements BlockData {
   }
 
   // 4. The Miner (Proof of Work)
-  // Finds a hash starting with 'difficulty' number of zeros.
-  // difficulty = 2 -> Hash must start with "00"
   async mineBlock(difficulty: number) {
     const target = Array(difficulty + 1).join("0");
 
@@ -59,7 +59,7 @@ export class Block implements BlockData {
       this.nonce++;
       this.hash = await this.calculateHash();
 
-      // Visual feedback for the CLI (Looks cool in demos)
+      // Visual feedback
       if (this.nonce % 500 === 0) {
         await Deno.stdout.write(
           new TextEncoder().encode(

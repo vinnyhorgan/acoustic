@@ -14,7 +14,7 @@ export type TicketStatus =
 export interface TicketPayload {
   price?: string; // eg "2.50 EUR"
   location?: string; // ec "central station"
-  device_id?: string; // who signed this?
+  deviceId?: string; // who signed this?
   timestamp: number; // when?
 }
 

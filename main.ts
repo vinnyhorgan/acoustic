@@ -1,8 +1,23 @@
-export function add(a: number, b: number): number {
-  return a + b;
-}
+import { Block } from "./block.ts";
 
-// Learn more at https://docs.deno.com/runtime/manual/examples/module_metadata#concepts
-if (import.meta.main) {
-  console.log("Add 2 + 3 =", add(2, 3));
-}
+// Mock Transaction
+const tx = {
+  id: "tx1",
+  type: "MINT" as const,
+  ticketId: "totem_123",
+  payload: { price: "2.50", timestamp: Date.now() },
+  signature: "sig",
+};
+
+console.log("--- STARTING MINER TEST ---");
+const block = await Block.create(1, Date.now(), [tx], "0000abc");
+
+console.log("Initial Hash:", block.hash);
+console.log("Mining with difficulty 3...");
+
+const start = Date.now();
+await block.mineBlock(3); // Should take a second or two
+const end = Date.now();
+
+console.log(`Mining took ${end - start}ms`);
+
